@@ -13,6 +13,10 @@ class model:
         #learning rate
         self.learning_rate = 0.05
 
+        #noise level for trial cases (the standard deviation used for random sampling of the normal dist.)
+        #bigger = more noise
+        self.noise = 0.05
+
         #inital randomized synapses, exclude layers with static weights
         self.degraded_to_hidden = (1*np.random.random((9,25))-0.5) #bounded by [-0.5, 0.5)
         self.rules_to_working = (0.4*np.random.random((17,25))) #bounded by [0, 0.4)
@@ -21,8 +25,7 @@ class model:
         self.hidden_to_category = (1*np.random.random((25,2))-0.5) #bounded by [-0.5, 0.5)
         
         #lists containing activations for each layer
-        self.stim_size = []
-        self.stim_angle = []
+        self.stim_size = self.stim_angle = 0
         self.rules = []
         self.degraded_stim = []
         self.working = []
@@ -96,10 +99,15 @@ class model:
     with the first four being size and the second being angle. The second set of 8 elements are the negative rule following the same conventions.
     """
 
-    #generate random activations for the three stimuli layers. must be called before every call to genRules/Target
-    def genStim(self): 
-        self.stim_size = np.random.randint(4)
-        self.stim_angle = np.random.randint(4)
+    #generate activations for the three stimuli layers. must be called before every call to genRules/Target
+    #can generate specific stimuli combinations when given corresponding arguments
+    def genStim(self, size=-1, angle=-1):
+        if(size == -1 and angle == -1):
+            self.stim_size = np.random.randint(4)
+            self.stim_angle = np.random.randint(4)
+        else:
+            self.stim_size = size
+            self.stim_angle = angle
 
         d_stim = []
         if(self.stim_size == 0):
@@ -119,10 +127,8 @@ class model:
             d_stim += [.202, .449, 1.0, .449]
         if(self.stim_angle == 3):
             d_stim += [.091, .202, .449, 1.0]
-
         d_stim.append(self.sparsity_bias)
         
-
         inst = []
         for i in range(4):
             for j in range(4, 8):
@@ -134,25 +140,22 @@ class model:
     #generate random rule combinations
     #when color is 0, rules are created such that the target will be black. 1 is for white, and with no arg it's random
     #only call this after generating stimuli
-    def genRules(self, complex_rule, color=2): 
+    def genRules(self, color=-1): 
         r = [0]*17
         if(color == 0): #ensure that matching rules are chosen to satisfy black condition
             r[self.stim_size] = 1
             r[self.stim_angle+4] = 1
-        #random rule selection
+        #random positive and negative rule generation
         for j in range(8):              
             x = np.random.random()
             if(x >= self.pos_rule_dist):
                 r[j] = 1
-        if(complex_rule):
-            for k in range(8, 16):
-                x = np.random.random()
-                if(x >= self.neg_rule_dist):
-                    r[k] = 1
-            if(color == 0): #nullify conflicting negative rules if black is requested
-                r[self.stim_size+8] = 0
-                r[self.stim_angle+12] = 0
-
+            y = np.random.random()
+            if(y >= self.neg_rule_dist):
+                r[j + 8] = 1
+        if(color == 0): #nullify conflicting negative rules if black is requested
+            r[self.stim_size+8] = 0
+            r[self.stim_angle+12] = 0
         if(color == 1): #ensure that matching rules aren't chosen to satisfy white condition
             r[self.stim_size] = 0
             r[self.stim_angle+4] = 0
@@ -160,27 +163,26 @@ class model:
         return np.array(r)
 
     #determines the target output from given rules & stimuli when rules are random
-    def genTarget(self, complex_rule):
+    def genTarget(self):
         #check for discrepancies between stimulus and positive rule, if any are found then the target is white (otherwise it's black)
         if(self.rules[0][self.stim_size] != 1):
             return np.array([0, 1])
         if(self.rules[0][self.stim_angle + 4] != 1):
             return np.array([0, 1])
-        #check for discrepancies between stimulus and negative rule if there is one
-        if(complex_rule):
-            if(self.rules[0][self.stim_size + 8] == 1):
-                return np.array([0, 1])
-            if(self.rules[0][self.stim_size + 12] == 1):
-                return np.array([0, 1])
+        #check for discrepancies between stimulus and negative rule
+        if(self.rules[0][self.stim_size + 8] == 1):
+            return np.array([0, 1])
+        if(self.rules[0][self.stim_size + 12] == 1):
+            return np.array([0, 1])
         return np.array([1, 0])
 
     #populates the input activations a randomly selected white/black training example
-    def genInput(self, complex_rule=True):
+    def genInput(self):
         stim = self.genStim()
         self.degraded_stim = stim[0].reshape(1, -1)
         self.instances = stim[1].reshape(1, -1)
-        self.rules = self.genRules(complex_rule, np.random.randint(2)).reshape(1, -1)
-        self.target = self.genTarget(complex_rule).reshape(1, -1)
+        self.rules = self.genRules(np.random.randint(2)).reshape(1, -1)
+        self.target = self.genTarget().reshape(1, -1)
 
     #calculate activations for working memory, hidden and category layers
     def feedForward(self, instructed=True):
@@ -219,7 +221,7 @@ class model:
         self.rules_to_working += self.learning_rate*self.rules.T.dot(working_delta)
 
     #inital training of the network
-    def train(self): 
+    def initTrain(self): 
         for i in range(5000000):
             self.genInput()
             self.feedForward()
@@ -241,6 +243,10 @@ class model:
             print("output: " + str(self.category))
             print("error: " + str(np.mean(np.square(self.target - self.category))))
             print("_______")
+
+    def applyNoise(self, matrix):
+        noise = np.random.normal(0, self.noise, matrix.shape)
+        matrix -= np.abs(noise)
 
             
     
