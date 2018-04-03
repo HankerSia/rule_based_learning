@@ -18,7 +18,8 @@ class model:
 
         #noise level for trial cases (the standard deviation used for random sampling of the normal dist.)
         #bigger = more noise
-        self.noise = 0.05
+        self.noise = 0.3
+        self.curr_noise = 0.0 #store the generated noise value so that it can be removed
 
         #inital randomized synapses, exclude layers with static weights
         self.degraded_to_hidden = (1*np.random.random((9,25))-0.5) #bounded by [-0.5, 0.5)
@@ -54,6 +55,15 @@ class model:
         self.inst_to_category = np.loadtxt('inst_to_category.txt')
         self.working_to_hidden = np.loadtxt('working_to_hidden.txt')
         self.hidden_to_category = np.loadtxt('hidden_to_category.txt')
+
+    """
+    NOTE: the weights currently stored in the text files were generated with the following configurations:
+    pos_rule_dist = 0.5
+    neg_rule_dist = 0.5
+    learning_rate = 0.005
+    training iterations: 8000000
+    error rate: 0.048
+    """
 
     #exports each weight matrix to 5 files
     def exportWeights(self): 
@@ -192,16 +202,16 @@ class model:
 
     #populates the input activations with either category of training example 
     #or completely randomized examples 
-    def genInput(self, training=True):
+    def genInput(self, categoried=True):
         stim = self.genStim()
         self.degraded_stim = stim[0].reshape(1, -1)
         self.instances = stim[1].reshape(1, -1)
-        if(training): #randomly generate a type of training examplar
+        if(categoried): #randomly generate a specific type of training examplar
             #trial type = 0: black
             #trial type = 1: white by simple or complex rule
             #trial tpe = 2: random
             self.trial_type = np.random.randint(3)
-            if(self.trial_type == 2): #random example
+            if(self.trial_type == 2):
                 self.rules = self.genRules().reshape(1, -1)
                 self.target = self.genTarget().reshape(1, -1)
             elif(self.trial_type == 1):
@@ -217,49 +227,62 @@ class model:
             self.rules = self.genRules().reshape(1, -1)
             self.target = self.genTarget().reshape(1, -1)
 
+    #input custom rule/stimuli combinations
+    def customInput(self, size, angle, target = [], rule = [], instructed=True, feedback=True):
+        stim = self.genStim(size, angle)
+        self.degraded_stim = stim[0].reshape(1, -1)
+        self.instances = stim[1].reshape(1,-1)
+        if(instructed): #only populate rules in instructed cases
+            self.rules = rule.reshape(1, -1)
+        if(feedback): #only populate targets for experimental training
+            self.target = target.reshape(1,-1)
+
     #calculate activations for working memory, hidden and category layers
+    #when uninstructed, fix working memory activations to zero
     def feedForward(self, instructed=True):
         if(instructed):
             self.working = self.sigmoid(np.dot(self.rules, self.rules_to_working)).reshape(1, -1)
             self.working[0][24] = self.sparsity_bias
+            self.hidden = self.sigmoid(np.dot(self.working, self.working_to_hidden) + np.dot(self.degraded_stim, self.degraded_to_hidden))
         else:
-            self.working = np.array(0*[25]).reshape(1, -1)
+            self.hidden = self.sigmoid(np.dot(self.degraded_stim, self.degraded_to_hidden))
 
-        self.hidden = self.sigmoid(np.dot(self.working, self.working_to_hidden) + np.dot(self.degraded_stim, self.degraded_to_hidden))
         self.hidden[0][24] = self.sparsity_bias
         self.category = self.sigmoid(np.dot(self.hidden, self.hidden_to_category) + np.dot(self.instances, self.inst_to_category))
 
     #calculate and apply weight changes for all synapse groups
-    def feedBackward(self):
+    def feedBackward(self, initialization=True):
         out_error = self.target - self.category
         out_delta = out_error*self.sigmoid(self.category, True)
-
-        inst_error = out_delta.dot(self.inst_to_category.T)
-        inst_delta = inst_error*self.sigmoid(self.instances, True)
-
-        hid_error = out_delta.dot(self.hidden_to_category.T)
-        hid_delta = hid_error*self.sigmoid(self.hidden, True)
-
-        dstim_error = hid_delta.dot(self.degraded_to_hidden.T)
-
-        working_error = hid_delta.dot(self.working_to_hidden.T)
-        working_delta = working_error*self.sigmoid(self.working, True)
-
-        rule_error = working_delta.dot(self.rules_to_working.T)
         
-        self.inst_to_category += self.learning_rate*self.instances.T.dot(out_delta)
-        self.hidden_to_category += self.learning_rate*self.hidden.T.dot(out_delta)
-        self.degraded_to_hidden += self.learning_rate*self.degraded_stim.T.dot(hid_delta)
-        self.working_to_hidden += self.learning_rate*self.working.T.dot(hid_delta)
-        self.rules_to_working += self.learning_rate*self.rules.T.dot(working_delta)
+        if(initialization): #only modify hidden layer, degraded stim, and working memory weights during initial training
+            hid_error = out_delta.dot(self.hidden_to_category.T)
+            hid_delta = hid_error*self.sigmoid(self.hidden, True)
 
-    #inital training of the network
-    def train(self): 
-        for i in range(10000000):
+            dstim_error = hid_delta.dot(self.degraded_to_hidden.T)
+
+            working_error = hid_delta.dot(self.working_to_hidden.T)
+            working_delta = working_error*self.sigmoid(self.working, True)
+
+            rule_error = working_delta.dot(self.rules_to_working.T)
+            
+        self.inst_to_category += self.learning_rate*self.instances.T.dot(out_delta)
+
+        if(initialization):
+            self.hidden_to_category += self.learning_rate*self.hidden.T.dot(out_delta)
+            self.degraded_to_hidden += self.learning_rate*self.degraded_stim.T.dot(hid_delta)
+            self.working_to_hidden += self.learning_rate*self.working.T.dot(hid_delta)
+            self.rules_to_working += self.learning_rate*self.rules.T.dot(working_delta)
+
+    #train the network on generated inputs
+    def train(self, iterations= 8000000): 
+        for i in range(iterations):
             self.genInput()
             self.feedForward()
             self.feedBackward()
-            if(i % 20000 == 0):
+            #print body for debugging during initial training
+            """
+            if(i % (iterations*0.01) == 0):
                 print("progress: " + str(i) + "/10000000")
                 print("rules: \n" + str(self.rules) + "\nsquare was size " + str(self.stim_size) + " and angle " + str(self.stim_angle))
                 if(self.trial_type == 0):
@@ -274,9 +297,10 @@ class model:
                 print("output: \n" + str(self.category))
                 print("error: \n" + str(np.mean(np.square(self.target - self.category))))
                 print("_______")
+            """        
     
-    #tests the network on random or categoried inputs
-    def test(self, categoried=False, display=False): 
+    #tests the network on random or categoried inputs (for debugging)
+    def test(self, iterations=1000, categoried=False, display=False): 
         if(display):
             for i in range(11): #small amount of exemplars with more info displayed per trial
                 self.genInput(categoried)
@@ -296,16 +320,27 @@ class model:
                 print("_______")
         else:
             sse_avg = 0
-            for i in range(0, 100000): #calculate average error over larger number of trials
+            err_count = 0
+            for i in range(0, iterations): #calculate average error over larger number of trials
                 self.genInput(categoried)
                 self.feedForward()
+                err = np.mean(np.square(self.target - self.category))
+                if(err >= 0.25):
+                    err_count += 1
+
                 sse_avg += np.mean(np.square(self.target - self.category))
     
-            print("average error: " + str(sse_avg / 100000))
+            print("average error: " + str(sse_avg / iterations))
+            print("mis-classifications: " + str(err_count) + "/" + str(iterations))
 
     def applyNoise(self, matrix):
         noise = np.random.normal(0, self.noise, matrix.shape)
+        self.curr_noise = noise
         matrix -= np.abs(noise)
+
+    def resetNoise(self, matrix):
+        matrix += np.abs(self.curr_noise)
+        self.curr_noise = 0
 
             
     
