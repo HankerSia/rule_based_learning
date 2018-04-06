@@ -18,7 +18,7 @@ class model:
 
         #noise level for trial cases (the standard deviation used for random sampling of the normal dist.)
         #bigger = more noise
-        self.noise = 0.3
+        self.noise = 0.05
         self.curr_noise = 0.0 #store the generated noise value so that it can be removed
 
         #inital randomized synapses, exclude layers with static weights
@@ -43,10 +43,6 @@ class model:
         if(deriv == True):
             return (x*(1-x))
         return 1/(1+np.exp(-x))
-
-    #used to convert output into probabilities
-    def softmax(self, inputs):
-        return np.exp(inputs) / float(sum(np.exp(inputs)))
 
     #imports weight matricies from text files
     def importWeights(self):
@@ -233,17 +229,23 @@ class model:
         self.degraded_stim = stim[0].reshape(1, -1)
         self.instances = stim[1].reshape(1,-1)
         if(instructed): #only populate rules in instructed cases
+            rule = np.array(rule)
             self.rules = rule.reshape(1, -1)
         if(feedback): #only populate targets for experimental training
             self.target = target.reshape(1,-1)
 
     #calculate activations for working memory, hidden and category layers
     #when uninstructed, fix working memory activations to zero
-    def feedForward(self, instructed=True):
+    #when generating activations in trials, apply noise to working memory
+    def feedForward(self, instructed=True, training=True):
         if(instructed):
             self.working = self.sigmoid(np.dot(self.rules, self.rules_to_working)).reshape(1, -1)
             self.working[0][24] = self.sparsity_bias
+            if(not(training)):
+                self.applyNoise(self.working)
             self.hidden = self.sigmoid(np.dot(self.working, self.working_to_hidden) + np.dot(self.degraded_stim, self.degraded_to_hidden))
+            if(not(training)):
+                self.removeNoise(self.working)
         else:
             self.hidden = self.sigmoid(np.dot(self.degraded_stim, self.degraded_to_hidden))
 
@@ -338,7 +340,7 @@ class model:
         self.curr_noise = noise
         matrix -= np.abs(noise)
 
-    def resetNoise(self, matrix):
+    def removeNoise(self, matrix):
         matrix += np.abs(self.curr_noise)
         self.curr_noise = 0
 
