@@ -67,7 +67,7 @@ the degraded stimulus layer are modified. The network is trained only on the
 training items/targets until it correctly identfies them and then
 it is tested on all possible stimuli.
 To reach acceptable classification rates on the examples in this case, a learning
-rate of 1 and 21000 iterations were required.
+rate of 1 and 9000 iterations were required.
 The results are the result of applying a softmax function to the sum total of
 activations in the category layer for each exemplar.
 """
@@ -75,13 +75,9 @@ activations in the category layer for each exemplar.
 uninstructed_performance = np.zeros((16, 2))
 uninstructed = model()
 uninstructed.importWeights()
-uninstructed.applyNoise(uninstructed.inst_to_category)
-uninstructed.applyNoise(uninstructed.inst_to_category)
-uninstructed.applyNoise(uninstructed.inst_to_category)
-uninstructed.applyNoise(uninstructed.inst_to_category)
-uninstructed.learning_rate = 1.
+uninstructed.learning_rate = 1
 
-for i in range(30000): #trains the uninstructed network
+for i in range(9000): #trains the uninstructed network
     ex = np.random.randint(7)
     uninstructed.customInput(training_items[ex,0], training_items[ex,1], training_targets[ex], instructed=False)
     uninstructed.feedForward(False, False)
