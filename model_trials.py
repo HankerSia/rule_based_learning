@@ -11,19 +11,19 @@ angle_space = [0, 1, 2, 3]
 #elements 8-11: size to be placed in white category
 #elements 12-15: angle to be placed in white category
 #element 16 is bias
-simple_training_rule = [1,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,1]
+simple_test_rule = [1,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,1]
 simple_rule = [1,0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1]
-complex_training_rule = [1,0,0,1,0,0,0,1,0,0,0,0,0,1,0,0,1]
-complex_rule = [1,0,0,0,1,0,0,1,0,0,0,1,0,0,0,0,1]
+complex_test_rule = [1,0,0,1,0,0,0,1,0,0,0,0,0,1,0,0,1]
+complex_rule = [1,0,0,0,1,0,0,1,0,0,1,0,0,0,0,0,1]
 
-#first item is angle, second is size
-training_items = np.array([[0,3], #M
-                            [1,2], #J
+#first item is size, second is angle
+training_items =  np.array([[3,0], #M
+                            [2,1], #J
                             [2,2], #K
                             [1,1], #F
-                            [3,1], #H
+                            [1,3], #H
                             [0,0], #A
-                            [2,0]])#C
+                            [0,2]])#C
 
 #[1,0] = black, [0,1] = white
 training_targets = np.array([[1,0], #M
@@ -35,7 +35,7 @@ training_targets = np.array([[1,0], #M
                              [1,0]])#C
 
 
-#used to convert output into probabilities
+#converts output into probabilities
 def softmax(inputs):
     return np.exp(inputs) / float(sum(np.exp(inputs)))
 
@@ -75,69 +75,91 @@ activations in the category layer for each exemplar.
 uninstructed_performance = np.zeros((16, 2))
 uninstructed = model()
 uninstructed.importWeights()
-uninstructed.learning_rate = 1
+uninstructed.applyNoise(uninstructed.inst_to_category)
+uninstructed.applyNoise(uninstructed.inst_to_category)
+uninstructed.applyNoise(uninstructed.inst_to_category)
+uninstructed.applyNoise(uninstructed.inst_to_category)
+uninstructed.learning_rate = 1.
 
-for i in range(21000): #choose a random training example
+for i in range(30000): #trains the uninstructed network
     ex = np.random.randint(7)
     uninstructed.customInput(training_items[ex,0], training_items[ex,1], training_targets[ex], instructed=False)
     uninstructed.feedForward(False, False)
-
-    """
-    if(i % 10000 == 0):
-        print(i)
-        print("targets: \n" + str(uninstructed.target))
-         print("output: \n" + str(uninstructed.category))
-        print("error: \n" + str(np.mean(np.square(uninstructed.target - uninstructed.category))))
-        print("_______")
-    """
-    
     uninstructed.feedBackward(False)
 
-for i in range(50): #test the networks performance on all 16 stimuli combinations, then compute average classification rates
-    test(uninstructed, uninstructed_performance, instructed=False)
-
-for i in range(16):
-    uninstructed_performance[i] = softmax(uninstructed_performance[i])
-print(uninstructed_performance)
-
+    """
+    if(ex == 4):
+        print(i)
+        print("size/angle: " + str(training_items[ex]))
+        print("targets: \n" + str(uninstructed.target))
+        print("output: \n" + str(uninstructed.category))
+        print("error: \n" + str(np.mean(np.square(uninstructed.target - uninstructed.category))))
+        print("_______")
+     """
+    
 
 """
 SIMPLE RULE CASE: only weights between the output and
-the degraded stimulus layer are modified. The network is trained on the
-training items/targets and the training simple rule until it correctly identfies them.
-It's then tested for its classification performance on all
-possible stimuli given a slightly modified simple rule.
-The network was trained on the 7 training exemplars and the simple training rule
-for 252 iterations, with a learning rate of 0.5.
+the degraded stimulus layer are modified. The network is initially tested on the
+testing items/targets and its performance on all 16 stimuli combinations given
+a simple rule are recorded. It's then trained on the training examples and targets,
+as well as a slightly modified simple rule. The network was trained on the 7
+training exemplars and the simple rule for 252 iterations, with a learning rate of 0.5.
 The results are the result of applying a softmax function to the sum total of
 activations in the category layer for each exemplar.
+
+COMPLEX RULE CASE: identical to the simple rule case, but with a rule with a negative element.
 """
 
-simple_performance = np.zeros((16, 2))
+simple_test_performance = np.zeros((16, 2))
+simple_performance = np.zeros((16,2))
 simple = model()
 simple.importWeights()
 simple.learning_rate = 0.5
 
-test(simple, simple_performance, r=simple_training_rule, instructed=True)
+complex_test_performance = np.zeros((16, 2))
+complex_performance = np.zeros((16, 2))
+complx = model()
+complx.importWeights()
+complx.learning_rate = 0.5
 
-for i in range(252): #choose a random training example
+for i in range(50): #compile the networks' performance on simple/complex rules with no training
+    test(simple, simple_test_performance, r=simple_test_rule, instructed=True)
+    test(complx, complex_test_performance, r=complex_test_rule, instructed=True)
+    
+for i in range(252): #trains the simple and complex rule-following networks
     ex = np.random.randint(7)
-    simple.customInput(training_items[ex,0], training_items[ex,1], training_targets[ex], simple_training_rule)
+    simple.customInput(training_items[ex,0], training_items[ex,1], training_targets[ex], simple_rule)
     simple.feedForward(True, False)
-    """
-    if(i % 500 == 0):
-        print(i)
-        print("targets: \n" + str(simple.target))
-        print("output: \n" + str(simple.category))
-        print("error: \n" + str(np.mean(np.square(simple.target - simple.category))))
-        print("_______")
-    """   
     simple.feedBackward(False)
 
-for i in range(50): #test the networks performance on all 16 stimuli combinations, then compute average classification rates
-    test(simple, simple_performance, r=simple_rule, instructed=True)
+    ex = np.random.randint(7)
+    complx.customInput(training_items[ex,0], training_items[ex,1], training_targets[ex], complex_rule)
+    complx.feedForward(True, False)
+    complx.feedBackward(False)
 
-for i in range(16):
+for i in range(50): #compile the networks' performance on modified simple/complex rules after training
+    test(uninstructed, uninstructed_performance, instructed=False)
+    test(simple, simple_performance, r=simple_rule, instructed=True)
+    test(complx, complex_performance, r=complex_rule, instructed=True)
+
+for i in range(16): #compute average classification rates by applying a softmax function to the sum total activation rates
+    uninstructed_performance[i] = softmax(uninstructed_performance[i])
     simple_performance[i] = softmax(simple_performance[i])
+    simple_test_performance[i] = softmax(simple_test_performance[i])
+    complex_performance[i] = softmax(complex_performance[i])
+    complex_test_performance[i] = softmax(complex_test_performance[i])
+
+print('uninstructed results: ')
+print(uninstructed_performance)
+print("----")
+print('simple rule testing results: ')
+print(simple_test_performance)
+print('simple rule following results: ')
 print(simple_performance)
+print("----")
+print('complex rule testing results: ')
+print(complex_test_performance)
+print('complex rule following results: ')
+print(complex_performance)
 
